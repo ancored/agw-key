@@ -1,0 +1,39 @@
+name: update
+
+on:
+  schedule:
+    - cron: "23 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(gh release view -R amnezia-vpn/amnezia-client --json tagName -q .tagName)
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if [ "$tag" != "$(cat version 2>/dev/null)" ]; then echo "new=1" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Extract key
+        if: steps.release.outputs.new == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          gh release download "$TAG" -R amnezia-vpn/amnezia-client -p '*_android11+_arm64-v8a.apk' -O "$RUNNER_TEMP/app.apk"
+          pip install --quiet cryptography==46.0.3
+          python -I extract.py "$RUNNER_TEMP/app.apk" key.pem
+          echo "$TAG" > version
+          git config user.name github-actions
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add key.pem version
+          git diff --cached --quiet || { git commit -q -m "$TAG" && git push -q; }
