@@ -1,4 +1,5 @@
 import base64
+import binascii
 import json
 import os
 import re
@@ -14,6 +15,7 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 URL = "http://gw.amnezia.org/v1/account_info"
 PEM = re.compile(rb"-----BEGIN PUBLIC KEY-----.{100,4000}?-----END PUBLIC KEY-----", re.S)
+B64 = re.compile(rb"[A-Za-z0-9+/=]{300,}")
 
 
 def candidates(apk):
@@ -21,11 +23,23 @@ def candidates(apk):
     with zipfile.ZipFile(apk) as archive:
         for name in archive.namelist():
             if name.endswith(".so"):
-                for match in PEM.finditer(archive.read(name)):
-                    pem = match.group().replace(b"\n", b"\n").decode("ascii").strip() + "\n"
-                    if pem not in found:
-                        found.append(pem)
+                blob = archive.read(name)
+                for match in PEM.finditer(blob):
+                    _store(found, match.group())
+                for match in B64.finditer(blob):
+                    try:
+                        raw = base64.b64decode(match.group(), validate=True)
+                    except binascii.Error:
+                        continue
+                    if raw.startswith(b"-----BEGIN"):
+                        _store(found, raw)
     return found
+
+
+def _store(found, pem):
+    pem = pem.decode("ascii").strip() + "\n"
+    if pem not in found:
+        found.append(pem)
 
 
 def aes(key, iv):
